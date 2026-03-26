@@ -1,4 +1,7 @@
 .vs/
 obj/
 bin/
+.coverage-state
+.coverage-prev.xml
+
 *.user

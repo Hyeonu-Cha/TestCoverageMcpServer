@@ -21,7 +21,7 @@ Resolve all variables before running any tool. Do not proceed until each value i
 1. **PROD LOCK:** NEVER modify the production file listed in the `TARGET_FILE` row above.
 2. **CLEAN APPEND:** Call `AppendTestCode` with `insertAfterAnchor` set to the closing `}` of the last existing `[Test]` or `[TestCase]` method to insert new tests in the correct location. If no tests exist yet, insert after the `[SetUp]` method's closing `}`.
 3. **RECOVERY:** If a test fails, **delete the specific failing method/attribute** and re-run to confirm the pass count is restored before trying a different approach.
-4. **ITERATION CAP:** Maximum **5 full cycles**. STOP for human review after the 5th report.
+4. **ITERATION CAP:** Keep iterating until both Line and Branch coverage reach 80%, or until coverage shows no improvement for **3 consecutive cycles** (whichever comes first). STOP for human review at that point.
 
 ## 🔄 The Execution Loop
 
@@ -29,18 +29,22 @@ Resolve all variables before running any tool. Do not proceed until each value i
 DO NOT use raw `dotnet test` or `reportgenerator` terminal commands. Call the `RunTestsWithCoverage` MCP tool:
 - `testProjectPath` → the `.csproj` path derived from the `TEST_FILE` row in Step -1 (the parent project folder containing the `.csproj`)
 - `filter` → the filename of `TARGET_FILE` without the `.cs` extension, suffixed with `UnitTests` (e.g. `ExampleFile` → `ExampleFileUnitTests`). If the test class uses a different naming convention, open the `TEST_FILE` and find the `class` declaration to get the exact class name, then use that as the filter instead.
+  - **Short names** (no dots, e.g. `ExampleFileUnitTests`) use partial match (`~`) — matches any test whose fully qualified name contains the string.
+  - **Fully qualified names** (contains dots, e.g. `MyProject.Tests.ExampleFileUnitTests`) use exact match (`=`) — runs only that specific class.
 
-This tool handles cleanup, runs the tests, generates the JSON report, and returns both the `Summary.json` path and the `coverage.cobertura.xml` path.
+This tool skips NuGet restore (`--no-restore`) for speed and enforces a 30-second hang timeout to prevent stuck tests. It returns both the `Summary.json` path and the `coverage.cobertura.xml` path.
 
 ### 2. Read Coverage Summary
-Call `GetCoverageSummary` with the `Summary.json` path returned in step 1. Read the result for precise line and branch coverage percentages.
+**First run only:** Call `GetCoverageSummary` with the `Summary.json` path returned in step 1. Returns compact JSON — an array of classes, each with `lineCoverage`, `branchCoverage`, and a `methods` list sorted by branch coverage ascending (lowest first). Use this to populate the **Before** columns of the progress table.
+ 
+**Subsequent runs:** Call `GetCoverageDiff` with the `coverage.cobertura.xml` path instead. Pass `workingDir` if the `.coverage-prev.xml` baseline should be stored somewhere other than the XML's parent directory. Returns only methods where coverage changed plus aggregate `cycleImprovement` deltas. Use `GetCoverageSummary` only if you need the full picture again.
 
 ### 3. Find Uncovered Branches
 Call `GetUncoveredBranches` with:
-- `coberturaXmlPath` → path to `coverage.cobertura.xml` inside the `TestResults` folder
+- `coberturaXmlPath` → use the `coverage.cobertura.xml` path returned by Step 1. If the file is not found at the given path, the tool automatically falls back to the path stored in `.coverage-state` (written by `RunTestsWithCoverage`).
 - `methodName` → name of the method to inspect
 
-Use this to identify exactly which conditions/branches are uncovered before writing tests.
+Returns compact JSON with the method name and a list of uncovered branch conditions per line. Use this to identify exactly which conditions are uncovered before writing tests.
 
 ### 4. Prioritize
 Focus on the 3 methods with the **absolute lowest coverage** (ignore methods already >= 80%).
@@ -66,9 +70,9 @@ Fix a failure **once**. If it fails again, mark as `🛠️ Blocked` with a root
 ## 📊 Comparative Progress Table
 > Populate the **Before** column after the first `RunTestsWithCoverage` run. Populate **After** after each subsequent run.
 
-| Method | Line % (After) | Branch % | New Tests | Status | Notes |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| *(fill after first run)* | | | | | |
+| Method | Line % (Before) | Line % (After) | Branch % (Before) | Branch % (After) | New Tests | Status | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| *(fill after first run)* | — | — | — | — | 0 | 🔄 Pending | — |
 
 ## 🏁 Termination
-Target: Both Branch Coverage >= 80% && Line Coverage >= 80% (excluding Blocked/Exempt) OR 5 Iterations reached.
+Target: Both Branch Coverage >= 80% && Line Coverage >= 80% (excluding Blocked/Exempt). If coverage shows no improvement for 3 consecutive cycles, STOP and report — further iteration is unlikely to help.

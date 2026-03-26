@@ -1,9 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Xml.Linq;
 using ModelContextProtocol.Server;
 
@@ -23,11 +24,19 @@ public class CoverageTools
         SafeDelete(resultsDir);
         SafeDelete(reportDir);
 
+        var filterOp = filter.Contains('.') ? "=" : "~";
+        var className = StripTestSuffix(filter.Split('.').Last());
+
         var psi = new ProcessStartInfo
         {
             FileName = "dotnet",
-            // If filter has no dots, the whole string is used; suffix stripping narrows coverage to the target class.
-            Arguments = $"test \"{testProjectPath}\" --filter \"FullyQualifiedName~{filter}\" --collect:\"XPlat Code Coverage\" --results-directory \"{resultsDir}\" /p:Include=\"[*]*{StripTestSuffix(filter.Split('.').Last())}\"",
+            Arguments = $"test \"{testProjectPath}\" " +
+                        $"--no-restore " +
+                        $"--blame-hang-timeout 30s " +
+                        $"--filter \"FullyQualifiedName{filterOp}{filter}\" " +
+                        $"--collect:\"XPlat Code Coverage\" " +
+                        $"--results-directory \"{resultsDir}\" " +
+                        $"/p:Include=\"[*]*{className}\"",
             WorkingDirectory = workingDir,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -47,6 +56,9 @@ public class CoverageTools
 
         var xmlPath = xmlPaths[0];
 
+        // Persist XML path for tools that need it without being given it explicitly
+        File.WriteAllText(Path.Combine(workingDir, ".coverage-state"), xmlPath);
+
         var reportPsi = new ProcessStartInfo
         {
             FileName = "reportgenerator",
@@ -61,7 +73,6 @@ public class CoverageTools
 
         var summaryPath = Path.Combine(reportDir, "Summary.json");
 
-        // UPDATED: Now returns both the Summary JSON and the Cobertura XML paths
         return File.Exists(summaryPath)
             ? $"Tests completed.\nCoverage JSON at: {summaryPath}\nCobertura XML at: {xmlPath}\nOutput: {output}"
             : "Report generation failed.\n" + output;
@@ -73,56 +84,108 @@ public class CoverageTools
         if (!File.Exists(summaryJsonPath)) return $"Summary.json not found: {summaryJsonPath}";
 
         var json = File.ReadAllText(summaryJsonPath);
-        var doc = JsonDocument.Parse(json);
-        return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
+        var root = JsonNode.Parse(json);
+
+        var assemblies = root?["coverage"]?["assemblies"]?.AsArray();
+        if (assemblies == null)
+            return $"Unexpected Summary.json structure — could not find coverage.assemblies.";
+
+        var result = new List<object>();
+
+        foreach (var assembly in assemblies)
+        {
+            var classes = assembly?["classes"]?.AsArray();
+            if (classes == null) continue;
+
+            foreach (var cls in classes)
+            {
+                var methods = cls?["methods"]?.AsArray();
+                var methodList = new List<(string name, double line, double branch)>();
+
+                if (methods != null)
+                {
+                    foreach (var method in methods)
+                    {
+                        var linePct = method?["linecoverage"]?.GetValue<double>() ?? 0;
+                        var branchPct = method?["branchcoverage"]?.GetValue<double>() ?? 0;
+                        methodList.Add((
+                            name: method?["name"]?.GetValue<string>() ?? "",
+                            line: Math.Round(linePct / 100.0, 4),
+                            branch: Math.Round(branchPct / 100.0, 4)
+                        ));
+                    }
+
+                    methodList = methodList.OrderBy(m => m.branch).ToList();
+                }
+
+                var classLinePct = cls?["linecoverage"]?.GetValue<double>() ?? 0;
+                var classBranchPct = cls?["branchcoverage"]?.GetValue<double>() ?? 0;
+
+                result.Add(new
+                {
+                    @class = cls?["name"]?.GetValue<string>() ?? "",
+                    lineCoverage = Math.Round(classLinePct / 100.0, 4),
+                    branchCoverage = Math.Round(classBranchPct / 100.0, 4),
+                    methods = methodList.Select(m => new { m.name, m.line, m.branch })
+                });
+            }
+        }
+
+        return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = false });
     }
 
     [McpServerTool]
     public string GetUncoveredBranches(string coberturaXmlPath, string methodName)
     {
+        // Self-heal: if the given path doesn't exist, fall back to .coverage-state
         if (!File.Exists(coberturaXmlPath))
         {
-            var dir = Directory.Exists(coberturaXmlPath)
-                ? coberturaXmlPath
-                : Path.GetDirectoryName(coberturaXmlPath) ?? Directory.GetCurrentDirectory();
-            var found = Directory.GetFiles(dir, "coverage.cobertura.xml", SearchOption.AllDirectories).FirstOrDefault();
-            if (found == null) return $"Cobertura XML not found at: {coberturaXmlPath}";
-            coberturaXmlPath = found;
+            var stateFile = Path.Combine(
+                Path.GetDirectoryName(coberturaXmlPath) is { Length: > 0 } d
+                    ? d
+                    : Directory.GetCurrentDirectory(),
+                ".coverage-state");
+
+            if (File.Exists(stateFile))
+                coberturaXmlPath = File.ReadAllText(stateFile).Trim();
+
+            if (!File.Exists(coberturaXmlPath))
+                return $"{{\"error\":\"Cobertura XML not found: {coberturaXmlPath}\"}}";
         }
 
         var doc = XDocument.Load(coberturaXmlPath);
-        var results = new StringBuilder();
 
-        var methods = doc.Descendants("method")
-            .Where(m => m.Attribute("name")?.Value?.Contains(methodName, StringComparison.OrdinalIgnoreCase) == true);
+        var matchedMethods = doc.Descendants("method")
+            .Where(m => m.Attribute("name")?.Value?.Contains(methodName, StringComparison.OrdinalIgnoreCase) == true)
+            .ToList();
 
-        if (!methods.Any())
-            return $"No method matching '{methodName}' found in coverage report.";
+        if (matchedMethods.Count == 0)
+            return $"{{\"error\":\"No method matching '{methodName}' found in coverage report.\"}}";
 
-        foreach (var method in methods)
-        {
-            var methodFullName = method.Attribute("name")?.Value;
-            results.AppendLine($"Method: {methodFullName}");
+        // Use the first match (most specific if there's only one)
+        var method = matchedMethods[0];
+        var methodFullName = method.Attribute("name")?.Value ?? methodName;
 
-            var branchLines = method.Descendants("line")
-                .Where(l => l.Attribute("branch")?.Value == "True");
-
-            foreach (var line in branchLines)
+        var uncoveredBranches = method.Descendants("line")
+            .Where(l => l.Attribute("branch")?.Value == "True")
+            .Select(l => new
             {
-                var lineNum = line.Attribute("number")?.Value;
-                var conditionCoverage = line.Attribute("condition-coverage")?.Value;
-
-                var uncoveredConditions = line.Descendants("condition")
+                line = int.TryParse(l.Attribute("number")?.Value, out var n) ? n : 0,
+                missing = l.Descendants("condition")
                     .Where(c => c.Attribute("coverage")?.Value == "0%")
                     .Select(c => $"condition {c.Attribute("number")?.Value} ({c.Attribute("type")?.Value})")
-                    .ToList();
+                    .ToList()
+            })
+            .Where(b => b.missing.Count > 0)
+            .ToList();
 
-                if (uncoveredConditions.Any())
-                    results.AppendLine($"  Line {lineNum}: {conditionCoverage} — uncovered: {string.Join(", ", uncoveredConditions)}");
-            }
-        }
+        var result = new
+        {
+            method = methodFullName,
+            uncoveredBranches
+        };
 
-        return results.Length > 0 ? results.ToString() : $"No uncovered branches found for '{methodName}'.";
+        return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = false });
     }
 
     [McpServerTool]
@@ -145,6 +208,104 @@ public class CoverageTools
         var appended = content + "\n\n" + codeToAppend.Trim() + "\n";
         File.WriteAllText(testFilePath, appended);
         return $"Successfully appended to {testFilePath}.\nAdded:\n{codeToAppend}\nNew file length: {appended.Length} chars";
+    }
+
+    [McpServerTool]
+    public string GetCoverageDiff(string coberturaXmlPath, string? workingDir = null)
+    {
+        if (!File.Exists(coberturaXmlPath))
+            return $"{{\"error\":\"Cobertura XML not found: {coberturaXmlPath}\"}}";
+
+        workingDir ??= Path.GetDirectoryName(coberturaXmlPath) ?? Directory.GetCurrentDirectory();
+        var prevPath = Path.Combine(workingDir, ".coverage-prev.xml");
+
+        var currentDoc = XDocument.Load(coberturaXmlPath);
+
+        if (!File.Exists(prevPath))
+        {
+            File.Copy(coberturaXmlPath, prevPath, true);
+            return JsonSerializer.Serialize(new { firstRun = true });
+        }
+
+        var prevDoc = XDocument.Load(prevPath);
+
+        // Aggregate line/branch rate from <coverage> root element
+        double ParseRate(XDocument d, string attr) =>
+            double.TryParse(d.Root?.Attribute(attr)?.Value, out var v) ? v : 0;
+
+        var prevLineRate = ParseRate(prevDoc, "line-rate");
+        var prevBranchRate = ParseRate(prevDoc, "branch-rate");
+        var curLineRate = ParseRate(currentDoc, "line-rate");
+        var curBranchRate = ParseRate(currentDoc, "branch-rate");
+
+        // Build lookup: key -> rates from previous
+        string MethodKey(XElement m) =>
+            $"{m.Parent?.Parent?.Attribute("name")?.Value}.{m.Attribute("name")?.Value}({m.Attribute("signature")?.Value})";
+
+        var prevMethods = prevDoc.Descendants("method")
+            .ToDictionary(
+                MethodKey,
+                m => (
+                    LineRate: double.TryParse(m.Attribute("line-rate")?.Value, out var lr) ? lr : 0,
+                    BranchRate: double.TryParse(m.Attribute("branch-rate")?.Value, out var br) ? br : 0
+                ));
+
+        var changedMethods = new List<object>();
+        var unchangedMethods = new List<string>();
+
+        foreach (var method in currentDoc.Descendants("method"))
+        {
+            var key = MethodKey(method);
+            var name = method.Attribute("name")?.Value ?? key;
+            var curLine = double.TryParse(method.Attribute("line-rate")?.Value, out var cl) ? cl : 0;
+            var curBranch = double.TryParse(method.Attribute("branch-rate")?.Value, out var cb) ? cb : 0;
+
+            if (prevMethods.TryGetValue(key, out var prev))
+            {
+                if (Math.Abs(curLine - prev.LineRate) > 0.001 || Math.Abs(curBranch - prev.BranchRate) > 0.001)
+                {
+                    changedMethods.Add(new
+                    {
+                        name,
+                        lineBefore = Math.Round(prev.LineRate, 4),
+                        lineAfter = Math.Round(curLine, 4),
+                        branchBefore = Math.Round(prev.BranchRate, 4),
+                        branchAfter = Math.Round(curBranch, 4)
+                    });
+                }
+                else
+                {
+                    unchangedMethods.Add(name);
+                }
+            }
+            else
+            {
+                changedMethods.Add(new
+                {
+                    name,
+                    lineBefore = 0.0,
+                    lineAfter = Math.Round(curLine, 4),
+                    branchBefore = 0.0,
+                    branchAfter = Math.Round(curBranch, 4)
+                });
+            }
+        }
+
+        // Save current as baseline for next diff
+        File.Copy(coberturaXmlPath, prevPath, true);
+
+        var result = new
+        {
+            cycleImprovement = new
+            {
+                lineDelta = Math.Round(curLineRate - prevLineRate, 4),
+                branchDelta = Math.Round(curBranchRate - prevBranchRate, 4)
+            },
+            changedMethods,
+            unchanged = unchangedMethods
+        };
+
+        return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = false });
     }
 
     private static string StripTestSuffix(string className)
