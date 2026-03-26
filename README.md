@@ -7,7 +7,9 @@ An MCP (Model Context Protocol) server that exposes .NET code coverage tooling a
 This server lets an AI assistant run unit tests, collect coverage data, and analyse results — all without leaving the chat. Instead of manually running `dotnet test` and parsing reports, the AI can call the server's tools directly to:
 
 - Run a filtered set of tests and collect coverage
-- Read and interpret the coverage summary JSON
+- Read compact, AI-optimised coverage summaries (method-level line/branch rates)
+- Identify uncovered branches as structured JSON
+- Diff coverage between runs to see only what changed
 - Append new test code to an existing test file
 
 ## How It Works
@@ -22,9 +24,10 @@ AI Client  <--stdio/MCP-->  CoverageMcpServer  <--shell-->  dotnet test + report
 
 | Tool | Description |
 |------|-------------|
-| `RunTestsWithCoverage` | Runs `dotnet test` with XPlat Code Coverage, then generates a JSON summary via `reportgenerator`. Returns paths to both `Summary.json` and `coverage.cobertura.xml`. |
-| `GetCoverageSummary` | Reads and returns the contents of a `Summary.json` coverage report file. |
-| `GetUncoveredBranches` | Parses a Cobertura XML coverage report and returns uncovered branch conditions for a named method. |
+| `RunTestsWithCoverage` | Runs `dotnet test` with XPlat Code Coverage, then generates a JSON summary via `reportgenerator`. Returns paths to both `Summary.json` and `coverage.cobertura.xml`. Writes the XML path to `.coverage-state` for downstream tools. |
+| `GetCoverageSummary` | Parses `Summary.json` and returns compact JSON — an array of classes with `lineCoverage`, `branchCoverage`, and `methods` sorted by branch coverage ascending (lowest first). |
+| `GetUncoveredBranches` | Parses Cobertura XML and returns compact JSON with uncovered branch conditions per line for a named method. Falls back to `.coverage-state` if the given path doesn't exist. |
+| `GetCoverageDiff` | Compares current Cobertura XML against `.coverage-prev.xml` and returns compact JSON with `cycleImprovement` deltas, `changedMethods`, and `unchanged` lists. Saves current as baseline for next diff. |
 | `AppendTestCode` | Appends or inserts a block of C# code into an existing test file. Supports an optional anchor string to insert after a specific location rather than at the end. |
 
 ## Requirements
@@ -101,6 +104,12 @@ Or point directly at the compiled executable:
 |-----------|------|----------|-------------|
 | `coberturaXmlPath` | string | Yes | Path to `coverage.cobertura.xml` (or its parent directory) |
 | `methodName` | string | Yes | Method name to inspect (partial match supported) |
+
+### `GetCoverageDiff`
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `coberturaXmlPath` | string | Yes | Path to the current `coverage.cobertura.xml` |
+| `workingDir` | string | No | Directory for storing `.coverage-prev.xml`; defaults to the XML's parent directory |
 
 ### `AppendTestCode`
 | Parameter | Type | Required | Description |
