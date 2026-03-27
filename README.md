@@ -24,6 +24,8 @@ AI Client  <--stdio/MCP-->  CoverageMcpServer  <--shell-->  dotnet test + report
 
 | Tool | Description |
 |------|-------------|
+| `DiscoverTestConfiguration` | Given a source `.cs` file path, auto-discovers the solution, source project, test project, and computes the mirrored test file path. Returns compact JSON with all resolved paths. |
+| `CreateTestFile` | Scaffolds a new test file mirroring the source directory structure. Reads the source constructor to auto-generate `[SetUp]` with mocked dependencies. Creates directories as needed. |
 | `RunTestsWithCoverage` | Runs `dotnet test` with XPlat Code Coverage, then generates a JSON summary via `reportgenerator`. Returns paths to both `Summary.json` and `coverage.cobertura.xml`. Writes the XML path to `.coverage-state` for downstream tools. |
 | `GetCoverageSummary` | Parses `Summary.json` and returns compact JSON — an array of classes with `lineCoverage`, `branchCoverage`, and `methods` sorted by branch coverage ascending (lowest first). |
 | `GetUncoveredBranches` | Parses Cobertura XML and returns compact JSON with uncovered branch conditions per line for a named method. Falls back to `.coverage-state` if the given path doesn't exist. |
@@ -86,6 +88,16 @@ Or point directly at the compiled executable:
 ```
 
 ## Tool Parameters
+
+### `DiscoverTestConfiguration`
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `sourceFilePath` | string | Yes | Full path to the production `.cs` file to cover |
+
+### `CreateTestFile`
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `testFilePath` | string | Yes | Full path where the test file should be created (use `suggestedTestFile` from `DiscoverTestConfiguration`). Creates directories as needed. No-ops if file already exists. |
 
 ### `RunTestsWithCoverage`
 | Parameter | Type | Required | Description |
