@@ -1,0 +1,7 @@
+{
+  "name": "dotnet-test-coverage",
+  "version": "0.1.0",
+  "description": "Skills and agent for iteratively improving .NET test coverage using TestCoverageMcpServer MCP tools.",
+  "skills": ["./skills/"],
+  "agents": ["./agents/test-coverage.agent.md"]
+}

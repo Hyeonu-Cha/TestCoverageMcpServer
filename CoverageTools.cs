@@ -27,16 +27,22 @@ public class CoverageTools
         var filterOp = filter.Contains('.') ? "=" : "~";
         var className = StripTestSuffix(filter.Split('.').Last());
 
+        var args = $"test \"{testProjectPath}\" " +
+                   $"--no-restore " +
+                   $"--blame-hang-timeout 30s " +
+                   $"--filter \"FullyQualifiedName{filterOp}{filter}\" " +
+                   $"--collect:\"XPlat Code Coverage\" " +
+                   $"--results-directory \"{resultsDir}\"";
+
+        // Only scope coverage to a single class when filter looks class-specific (no wildcards, no '*')
+        // Skip /p:Include for broad filters to collect coverage across all source files
+        if (!filter.Contains('*') && !filter.Contains(','))
+            args += $" /p:Include=\"[*]*{className}\"";
+
         var psi = new ProcessStartInfo
         {
             FileName = "dotnet",
-            Arguments = $"test \"{testProjectPath}\" " +
-                        $"--no-restore " +
-                        $"--blame-hang-timeout 30s " +
-                        $"--filter \"FullyQualifiedName{filterOp}{filter}\" " +
-                        $"--collect:\"XPlat Code Coverage\" " +
-                        $"--results-directory \"{resultsDir}\" " +
-                        $"/p:Include=\"[*]*{className}\"",
+            Arguments = args,
             WorkingDirectory = workingDir,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -306,6 +312,191 @@ public class CoverageTools
         };
 
         return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = false });
+    }
+
+    [McpServerTool]
+    public string GetFileCoverage(string coberturaXmlPath, string sourceFileName)
+    {
+        if (!File.Exists(coberturaXmlPath))
+        {
+            var stateFile = Path.Combine(
+                Path.GetDirectoryName(coberturaXmlPath) is { Length: > 0 } d
+                    ? d
+                    : Directory.GetCurrentDirectory(),
+                ".coverage-state");
+
+            if (File.Exists(stateFile))
+                coberturaXmlPath = File.ReadAllText(stateFile).Trim();
+
+            if (!File.Exists(coberturaXmlPath))
+                return $"{{\"error\":\"Cobertura XML not found: {coberturaXmlPath}\"}}";
+        }
+
+        var doc = XDocument.Load(coberturaXmlPath);
+
+        // Match classes whose filename attribute ends with the given source file name
+        var matchedClasses = doc.Descendants("class")
+            .Where(c =>
+            {
+                var filename = c.Attribute("filename")?.Value ?? "";
+                return filename.EndsWith(sourceFileName, StringComparison.OrdinalIgnoreCase)
+                    || filename.EndsWith(sourceFileName.Replace("/", "\\"), StringComparison.OrdinalIgnoreCase)
+                    || filename.EndsWith(sourceFileName.Replace("\\", "/"), StringComparison.OrdinalIgnoreCase);
+            })
+            .ToList();
+
+        if (matchedClasses.Count == 0)
+            return $"{{\"error\":\"No classes found for source file '{sourceFileName}' in coverage report.\"}}";
+
+        var classes = new List<object>();
+        var allMeetTarget = true;
+
+        foreach (var cls in matchedClasses)
+        {
+            var className = cls.Attribute("name")?.Value ?? "";
+            var lineRate = double.TryParse(cls.Attribute("line-rate")?.Value, out var lr) ? lr : 0;
+            var branchRate = double.TryParse(cls.Attribute("branch-rate")?.Value, out var br) ? br : 0;
+            var meetsTarget = lineRate >= 0.8 && branchRate >= 0.8;
+
+            if (!meetsTarget) allMeetTarget = false;
+
+            var methods = cls.Descendants("method")
+                .Select(m => new
+                {
+                    name = m.Attribute("name")?.Value ?? "",
+                    lineRate = double.TryParse(m.Attribute("line-rate")?.Value, out var mlr) ? Math.Round(mlr, 4) : 0,
+                    branchRate = double.TryParse(m.Attribute("branch-rate")?.Value, out var mbr) ? Math.Round(mbr, 4) : 0
+                })
+                .OrderBy(m => m.branchRate)
+                .ToList();
+
+            classes.Add(new
+            {
+                @class = className,
+                lineRate = Math.Round(lineRate, 4),
+                branchRate = Math.Round(branchRate, 4),
+                meetsTarget,
+                methods
+            });
+        }
+
+        var result = new
+        {
+            sourceFile = sourceFileName,
+            allMeetTarget,
+            classes
+        };
+
+        return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = false });
+    }
+
+    [McpServerTool]
+    public string GetSourceFiles(string path, int lineBudget = 300)
+    {
+        List<string> filePaths;
+        string scope;
+        string? scopePath = null;
+
+        if (File.Exists(path) && path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+        {
+            scope = "file";
+            filePaths = [Path.GetFullPath(path)];
+        }
+        else if (File.Exists(path) && path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+        {
+            scope = "project";
+            scopePath = Path.GetFullPath(path);
+            var projectDir = Path.GetDirectoryName(scopePath) ?? Directory.GetCurrentDirectory();
+            filePaths = Directory.GetFiles(projectDir, "*.cs", SearchOption.AllDirectories)
+                .Where(f => !IsExcludedPath(f))
+                .Select(Path.GetFullPath)
+                .OrderBy(f => f)
+                .ToList();
+        }
+        else if (Directory.Exists(path))
+        {
+            scope = "folder";
+            scopePath = Path.GetFullPath(path);
+            filePaths = Directory.GetFiles(path, "*.cs", SearchOption.AllDirectories)
+                .Where(f => !IsExcludedPath(f))
+                .Select(Path.GetFullPath)
+                .OrderBy(f => f)
+                .ToList();
+        }
+        else
+        {
+            return $"{{\"error\":\"Path not found or not a .cs file, .csproj file, or directory: {path}\"}}";
+        }
+
+        // Build file metadata
+        var files = filePaths.Select(f =>
+        {
+            var content = File.ReadAllText(f);
+            var lines = content.Split('\n').Length;
+            // Count public methods by simple pattern match
+            var methodCount = System.Text.RegularExpressions.Regex.Matches(
+                content, @"public\s+(?:(?:async\s+)?(?:virtual\s+)?(?:override\s+)?(?:static\s+)?)" +
+                         @"[\w<>\[\]?,\s]+\s+\w+\s*\(").Count;
+            return new { path = f, lines, methodCount };
+        })
+        .OrderBy(f => f.lines) // smallest files first for efficient batching
+        .ToList();
+
+        // Build batches based on line budget
+        var batches = new List<List<object>>();
+        var currentBatch = new List<object>();
+        var currentBatchLines = 0;
+
+        foreach (var file in files)
+        {
+            // Large file gets its own batch
+            if (file.lines > lineBudget)
+            {
+                if (currentBatch.Count > 0)
+                {
+                    batches.Add(currentBatch);
+                    currentBatch = [];
+                    currentBatchLines = 0;
+                }
+                batches.Add([file]);
+                continue;
+            }
+
+            // Would adding this file exceed budget?
+            if (currentBatchLines + file.lines > lineBudget && currentBatch.Count > 0)
+            {
+                batches.Add(currentBatch);
+                currentBatch = [];
+                currentBatchLines = 0;
+            }
+
+            currentBatch.Add(file);
+            currentBatchLines += file.lines;
+        }
+
+        if (currentBatch.Count > 0)
+            batches.Add(currentBatch);
+
+        var result = new
+        {
+            scope,
+            scopePath,
+            totalFiles = files.Count,
+            totalLines = files.Sum(f => f.lines),
+            lineBudget,
+            batchCount = batches.Count,
+            batches,
+            files
+        };
+
+        return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = false });
+    }
+
+    private static bool IsExcludedPath(string filePath)
+    {
+        var normalized = filePath.Replace("\\", "/");
+        string[] excludedSegments = ["/obj/", "/bin/", "/TestResults/", "/coveragereport/", "/Migrations/"];
+        return excludedSegments.Any(seg => normalized.Contains(seg, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string StripTestSuffix(string className)
