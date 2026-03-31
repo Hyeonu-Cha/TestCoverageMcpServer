@@ -1,4 +1,9 @@
 .vs/
+.claude/
 obj/
 bin/
+.mcp-coverage/
+TestResults*/
+coveragereport*/
+
 *.user

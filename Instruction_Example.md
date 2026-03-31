@@ -1,74 +1,123 @@
-# 🎯 Production Coverage Mission: ExampleFile.cs
+# Production Coverage Mission: ExampleFile.cs
 
-## 📋 Step -1: Variable Resolution (Confirm Before Executing)
+## Step -1: Variable Resolution (Confirm Before Executing)
 
 Resolve all variables before running any tool. Do not proceed until each value is confirmed.
 
 | Variable | Value |
 | :--- | :--- |
-| `TARGET_FILE` | `src/YourProject/ExampleFile.cs` |
+| `SOURCE_PATH` | `src/YourProject/ExampleFile.cs` |
 | `TEST_FILE` | `tests/YourProject.Tests/Unit/ExampleFileTests.cs` |
+| `TEST_PROJECT` | `tests/YourProject.Tests/YourProject.Tests.csproj` |
 
-> ⚠️ If any path does not exist on disk, stop and ask the user to correct it.
+> If any path does not exist on disk, stop and ask the user to correct it.
 
-## 🏗️ Step 0: Infrastructure & DI Setup
-1. **Tooling Check:** Run `dotnet tool list -g`. If `reportgenerator` does not appear in the output, install it: `dotnet tool install -g dotnet-reportgenerator-globaltool`.
-2. **Dependency Analysis:** Read the target file at the path specified in the `TARGET_FILE` row above. Start with its constructor.
-3. **[SetUp] Initialization:** In the test file at the path specified in the `TEST_FILE` row above, ensure a `[SetUp]` method exists that mocks all constructor interfaces using **Moq**. Use your available file editing tool to create or modify `[SetUp]` — `AppendTestCode` is for adding new test methods only, not modifying existing structure.
-4. **Cold Start:** If no coverage exists, identify the 3 most complex public methods (highest branching) and write baseline tests first.
+## Step 0: Discover Scope & Build Batches
 
-## 🛡️ Strict Safety & Edit Protocols
-1. **PROD LOCK:** NEVER modify the production file listed in the `TARGET_FILE` row above.
-2. **CLEAN APPEND:** Call `AppendTestCode` with `insertAfterAnchor` set to the closing `}` of the last existing `[Test]` or `[TestCase]` method to insert new tests in the correct location. If no tests exist yet, insert after the `[SetUp]` method's closing `}`.
-3. **RECOVERY:** If a test fails, **delete the specific failing method/attribute** and re-run to confirm the pass count is restored before trying a different approach.
-4. **ITERATION CAP:** Maximum **5 full cycles**. STOP for human review after the 5th report.
+1. **Tooling Check:** Run `dotnet tool list -g`. If `reportgenerator` does not appear, install it: `dotnet tool install -g dotnet-reportgenerator-globaltool`.
+2. **Scope Discovery:** Call `GetSourceFiles` with:
+   - `path` → `SOURCE_PATH` (for a single file), a folder path (for a directory), or a `.csproj` path (for a project)
+   - `lineBudget` → `300` (default; adjust if context is limited)
 
-## 🔄 The Execution Loop
+   This returns file metadata (lines, method count) and smart batches. Small files are grouped together; large files get their own batch.
+3. **Pick a batch:** Start with batch 0. You will work through each batch sequentially.
+
+## Step 1: Infrastructure & DI Setup (per batch)
+
+1. **Dependency Analysis:** Read each source file in the current batch. Identify constructors, injected interfaces, and public methods.
+2. **Test File Check:** If test files don't exist yet for files in this batch, use the `scaffold-test-files` skill or manually create them:
+   - Unit tests: mock all constructor interfaces, instantiate with `new ClassName(mock1.Object, ...)`
+   - Integration tests: build `ServiceCollection` with in-memory infrastructure
+3. **SetUp Initialization:** Ensure each test file has proper setup (framework-specific: `[SetUp]` for NUnit, constructor for xUnit, `[TestInitialize]` for MSTest) that mocks/initializes all dependencies.
+4. **Cold Start:** If no coverage exists for a file, identify the 3 most complex public methods (highest branching) and write baseline tests first.
+5. **NuGet Restore:** If you created new test projects or added packages, the first `RunTestsWithCoverage` call must use `forceRestore=true`.
+
+## Strict Safety & Edit Protocols
+
+1. **PROD LOCK:** NEVER modify production source files.
+2. **CLEAN APPEND:** Call `AppendTestCode` with `insertAfterAnchor` set to the closing `}` of the last test method to insert in the correct location. If no tests exist yet, insert after the setup method's closing `}`.
+3. **RECOVERY:** If a test fails, use your editor to fix the specific failing method. If the same test fails 3 times, delete it entirely and move on.
+4. **ITERATION CAP:** Keep iterating until both Line and Branch coverage reach 80%, or until 3 consecutive cycles show no improvement. STOP for human review at that point.
+
+## The Execution Loop
 
 ### 1. Run Tests & Collect Coverage
-DO NOT use raw `dotnet test` or `reportgenerator` terminal commands. Call the `RunTestsWithCoverage` MCP tool:
-- `testProjectPath` → the `.csproj` path derived from the `TEST_FILE` row in Step -1 (the parent project folder containing the `.csproj`)
-- `filter` → the filename of `TARGET_FILE` without the `.cs` extension, suffixed with `UnitTests` (e.g. `ExampleFile` → `ExampleFileUnitTests`). If the test class uses a different naming convention, open the `TEST_FILE` and find the `class` declaration to get the exact class name, then use that as the filter instead.
 
-This tool handles cleanup, runs the tests, generates the JSON report, and returns both the `Summary.json` path and the `coverage.cobertura.xml` path.
+Call `RunTestsWithCoverage`:
+- `testProjectPath` → the `.csproj` from `TEST_PROJECT`
+- `filter` → use a broad filter (e.g., `*` or the test namespace) to cover all files in the batch with a single test run
+- `forceRestore` → `true` on the first run after scaffolding; omit otherwise
 
-### 2. Read Coverage Summary
-Call `GetCoverageSummary` with the `Summary.json` path returned in step 1. Read the result for precise line and branch coverage percentages.
+This returns both the `Summary.json` path and the `coverage.cobertura.xml` path. One test run covers the entire batch.
 
-### 3. Find Uncovered Branches
-Call `GetUncoveredBranches` with:
-- `coberturaXmlPath` → path to `coverage.cobertura.xml` inside the `TestResults` folder
-- `methodName` → name of the method to inspect
+### 2. Check Per-File Coverage
 
-Use this to identify exactly which conditions/branches are uncovered before writing tests.
+For each file in the current batch, call `GetFileCoverage`:
+- `coberturaXmlPath` → the XML path from step 1
+- `sourceFileName` → the `.cs` filename (e.g., `ExampleService.cs`)
 
-### 4. Prioritize
-Focus on the 3 methods with the **absolute lowest coverage** (ignore methods already >= 80%).
+This is instant (XML parsing only, no test re-run). Check `allMeetTarget` — when `true`, that file has reached 80% line and branch coverage and can be marked done.
+
+### 3. Read Full Summary (first run only)
+
+Call `GetCoverageSummary` with the `Summary.json` path. Returns compact JSON — an array of classes with `lineCoverage`, `branchCoverage`, and `methods` sorted by branch coverage ascending. Use this to populate the **Before** columns of the progress table.
+
+On subsequent runs, use `GetCoverageDiff` instead — it returns only what changed plus `cycleImprovement` deltas.
+
+### 4. Find Uncovered Branches
+
+Pick the 3 methods with the **lowest branch coverage** across all files in the batch (ignore methods already >= 80%).
+
+For each, call `GetUncoveredBranches`:
+- `coberturaXmlPath` → the XML path
+- `methodName` → name of the method (partial match supported; returns all matches)
+
+Returns uncovered branch conditions per line with `matchCount` showing how many methods matched.
 
 ### 5. Write Tests
-- Use `[TestCase]` for simple value variations on the same logic path.
-- Use unique `[Test]` methods when different `Mock.Setup` configurations are required.
-- Call `AppendTestCode` to add new test methods. Use `insertAfterAnchor` to place them after the last existing test rather than at the end of the file.
 
-### 6. Self-Healing
-Fix a failure **once**. If it fails again, mark as `🛠️ Blocked` with a root-cause note and move to the next method.
+- Use data-driven attributes (`[TestCase]` NUnit, `[InlineData]` xUnit, `[DataRow]` MSTest) for simple value variations
+- Use separate test methods when different mock setups are required
+- Call `AppendTestCode` to add new test methods with `insertAfterAnchor` for placement
+- Max 1-3 assertions per test; name tests `MethodName_Condition_ExpectedResult`
 
-## 💎 Test Quality Rules (Anti-Padding)
-1. **NO BULK POCO TESTS:** Strictly avoid tests that simply set/get 20+ properties in a row.
-2. **BEHAVIORAL FOCUS:** Every test must target a specific logic branch, calculation, or external interaction (e.g., `Should_Calculate_TotalValue_When_Components_Are_Provided`).
-3. **ATOMICITY:** Each test should ideally have 1-3 assertions max.
-4. **DATA VARIATION:** Use `[TestCase]` to test different data inputs for the same method instead of writing multiple identical `[Test]` methods.
+### 6. Handle Build Errors
 
-## ⚠️ Exemption & Blocked Criteria
-- **Exempt:** Static factories, legacy code with no interfaces, or `private` methods.
-- **Blocked:** AI attempted 3 times and hit a logic wall (e.g., async deadlocks, sealed classes, static dependencies).
+If `RunTestsWithCoverage` returns a build error after writing tests:
+- Use your editor (Edit tool) to fix the syntax error — do NOT use `AppendTestCode` to fix existing code
+- If the same test fails 3 times, delete it and move on
 
-## 📊 Comparative Progress Table
-> Populate the **Before** column after the first `RunTestsWithCoverage` run. Populate **After** after each subsequent run.
+### 7. Re-run & Diff
 
-| Method | Line % (After) | Branch % | New Tests | Status | Notes |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| *(fill after first run)* | | | | | |
+Run tests once (step 1 again), then call `GetCoverageDiff` to verify improvement. Call `GetFileCoverage` for each file to update per-file status.
 
-## 🏁 Termination
-Target: Both Branch Coverage >= 80% && Line Coverage >= 80% (excluding Blocked/Exempt) OR 5 Iterations reached.
+### 8. Advance or Repeat
+
+- If all files in the batch have `allMeetTarget: true` → move to the next batch
+- If 3 cycles pass with no improvement → mark stuck methods as blocked, move to next batch
+- Otherwise → repeat from step 4
+
+## Test Quality Rules
+
+1. **NO BULK POCO TESTS:** Avoid tests that just set/get properties with no logic.
+2. **BEHAVIORAL FOCUS:** Every test must target a specific logic branch, calculation, or external interaction.
+3. **ATOMICITY:** Each test should have 1-3 assertions max.
+4. **DATA VARIATION:** Use data-driven attributes for input variations instead of duplicating test methods.
+5. **NAMING:** Use `MethodName_Condition_ExpectedResult` pattern.
+
+## Exemption & Blocked Criteria
+
+- **Exempt:** Static factories, legacy code with no interfaces, `private` methods.
+- **Blocked:** 3 failed attempts (async deadlocks, sealed classes, static dependencies). Note root cause and move on.
+
+## Comparative Progress Table
+
+> Populate **Before** after the first `GetFileCoverage` run. Populate **After** after each subsequent run.
+
+| File | Method | Line % (Before) | Line % (After) | Branch % (Before) | Branch % (After) | New Tests | Status | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| *(fill after first run)* | — | — | — | — | — | 0 | Pending | — |
+
+## Termination
+
+Target: Both Branch Coverage >= 80% and Line Coverage >= 80% for all files (excluding Blocked/Exempt). If coverage shows no improvement for 3 consecutive cycles, STOP and report.

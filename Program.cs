@@ -17,10 +17,8 @@ class Program
 
         builder.Services
             .AddMcpServer()
-            .WithStdioServerTransport()         
-            .WithToolsFromAssembly();            // Automatically finds your CoverageTools class
-
-        builder.Services.AddSingleton<CoverageTools>();
+            .WithStdioServerTransport()
+            .WithToolsFromAssembly();            // Automatically finds and registers CoverageTools
 
         var host = builder.Build();
         await host.RunAsync();
