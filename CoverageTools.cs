@@ -34,7 +34,8 @@ public class CoverageTools
         string filter,
         string? workingDir = null,
         bool forceRestore = false,
-        string? sessionId = null)
+        string? sessionId = null,
+        CancellationToken cancellationToken = default)
     {
         workingDir ??= Path.GetDirectoryName(testProjectPath) ?? Directory.GetCurrentDirectory();
         var suffix = sessionId != null ? $"-{SessionKey(sessionId)}" : "";
@@ -78,7 +79,16 @@ public class CoverageTools
         var errorTask = process.StandardError.ReadToEndAsync();
         string output = await process.StandardOutput.ReadToEndAsync();
         string error = await errorTask;
-        await process.WaitForExitAsync();
+
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            return JsonError("cancelled", "Test run was cancelled by the client.");
+        }
 
         if (process.ExitCode != 0)
             return JsonError("buildError", $"Test run failed (code {process.ExitCode}). Error: {error}\nOutput: {output}");
@@ -343,7 +353,7 @@ public class CoverageTools
 
             if (!File.Exists(prevPath))
             {
-                File.Copy(coberturaXmlPath, prevPath, true);
+                AtomicWriteFile(prevPath, File.ReadAllText(coberturaXmlPath));
                 return JsonSerializer.Serialize(new { firstRun = true }, JsonOptions);
             }
 
@@ -429,8 +439,8 @@ public class CoverageTools
                 })
                 .ToList();
 
-            // Save current as baseline for next diff
-            File.Copy(coberturaXmlPath, prevPath, true);
+            // Save current as baseline for next diff (atomic to prevent corruption on crash)
+            AtomicWriteFile(prevPath, File.ReadAllText(coberturaXmlPath));
 
             var result = new
             {
@@ -455,8 +465,8 @@ public class CoverageTools
     // --- 6. GetFileCoverage ---
 
     [McpServerTool]
-    [Description("Get coverage for a single source file from Cobertura XML. Returns per-class and per-method rates with allMeetTarget (true when all classes have line >= 80% and branch >= 80%). Instant — just XML parsing. Pass sessionId to resolve the correct coverage state when multiple agents run concurrently.")]
-    public string GetFileCoverage(string coberturaXmlPath, string sourceFileName, string? sessionId = null)
+    [Description("Get coverage for a single source file from Cobertura XML. Returns per-class and per-method rates with allMeetTarget (true when all classes meet targetRate for both line and branch). Instant — just XML parsing. Pass sessionId to resolve the correct coverage state when multiple agents run concurrently.")]
+    public string GetFileCoverage(string coberturaXmlPath, string sourceFileName, string? sessionId = null, double targetRate = 0.8)
     {
         coberturaXmlPath = ResolveCoberturaPath(coberturaXmlPath, sessionId) ?? coberturaXmlPath;
         if (!File.Exists(coberturaXmlPath))
@@ -488,7 +498,7 @@ public class CoverageTools
                 var className = cls.Attribute("name")?.Value ?? "";
                 var lineRate = double.TryParse(cls.Attribute("line-rate")?.Value, out var lr) ? lr : 0;
                 var branchRate = double.TryParse(cls.Attribute("branch-rate")?.Value, out var br) ? br : 0;
-                var meetsTarget = lineRate >= 0.8 && branchRate >= 0.8;
+                var meetsTarget = lineRate >= targetRate && branchRate >= targetRate;
 
                 if (!meetsTarget) allMeetTarget = false;
 
