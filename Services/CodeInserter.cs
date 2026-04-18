@@ -219,6 +219,10 @@ public class CodeInserter : ICodeInserter
 
             if (insertAfterAnchor != null)
             {
+                // Limitation: this only matches anchors contained within a single member's
+                // full text. Anchors that span two adjacent members (e.g., the closing brace
+                // of method A plus the signature of method B) will not match here — the
+                // string fallback path handles that case.
                 var anchorMember = targetType.Members
                     .LastOrDefault(m => m.ToFullString().Contains(insertAfterAnchor, StringComparison.Ordinal));
 

@@ -22,6 +22,13 @@ public class CoverageTools
         ICodeInserter codeInserter,
         IPathGuard pathGuard)
     {
+        ArgumentNullException.ThrowIfNull(processRunner);
+        ArgumentNullException.ThrowIfNull(sessionManager);
+        ArgumentNullException.ThrowIfNull(fileService);
+        ArgumentNullException.ThrowIfNull(coberturaService);
+        ArgumentNullException.ThrowIfNull(codeInserter);
+        ArgumentNullException.ThrowIfNull(pathGuard);
+
         _processRunner = processRunner;
         _sessionManager = sessionManager;
         _fileService = fileService;
@@ -180,7 +187,7 @@ public class CoverageTools
                 InsertionMethod.RoslynAst => "Roslyn AST",
                 InsertionMethod.StringFallback => "string fallback",
                 InsertionMethod.StringFallbackNormalized => "string fallback, whitespace-normalized",
-                InsertionMethod.Appended => "string fallback, before-last-brace",
+                InsertionMethod.Appended => "string fallback, inside last class",
                 _ => "unknown"
             };
             return $"Successfully inserted via {methodLabel} in {testFilePath}.\nNew file length: {result.Content.Length} chars";
