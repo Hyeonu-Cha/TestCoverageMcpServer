@@ -125,11 +125,14 @@ public class ProcessRunner : IProcessRunner
     // Wait up to 1s for a read task to complete after the process has been killed.
     // If it doesn't finish, observe its eventual exception so it never surfaces as
     // an UnobservedTaskException and return an empty string.
-    private static async Task<string> DrainAsync(Task<string> task)
+    internal static async Task<string> DrainAsync(Task<string> task) =>
+        await DrainAsync(task, TimeSpan.FromSeconds(1));
+
+    internal static async Task<string> DrainAsync(Task<string> task, TimeSpan wait)
     {
         try
         {
-            return await task.WaitAsync(TimeSpan.FromSeconds(1));
+            return await task.WaitAsync(wait);
         }
         catch (TimeoutException)
         {

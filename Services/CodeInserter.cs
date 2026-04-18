@@ -131,11 +131,12 @@ public class CodeInserter : ICodeInserter
         return outerBrace;
     }
 
-    // Matches a single `using X;` or `using static X;` or `using alias = X;` directive at the start
-    // of a string. We strip these out of codeToAppend before wrapping it in a class, since using
-    // directives are invalid inside a class body and would otherwise fail the Roslyn parse.
+    // Matches a single `using X;`, `using static X;`, `using alias = X;`, or `global using X;`
+    // directive at the start of a string (after any leading whitespace/comment trivia). We strip
+    // these out of codeToAppend before wrapping it in a class, since using directives are invalid
+    // inside a class body and would otherwise fail the Roslyn parse.
     private static readonly Regex LeadingUsingRegex = new(
-        @"^\s*using\s+(?:static\s+)?[\w.@=\s<>,]+;[^\S\r\n]*\r?\n?",
+        @"^(?:global\s+)?using\s+(?:static\s+)?[\w.@=\s<>,]+;[^\S\r\n]*\r?\n?",
         RegexOptions.Compiled);
 
     internal static (List<string> Usings, string Remainder) SplitLeadingUsings(string code)
@@ -144,12 +145,42 @@ public class CodeInserter : ICodeInserter
         var remainder = code;
         while (true)
         {
-            var match = LeadingUsingRegex.Match(remainder);
+            var triviaLen = ConsumeLeadingTrivia(remainder);
+            var afterTrivia = remainder[triviaLen..];
+            var match = LeadingUsingRegex.Match(afterTrivia);
             if (!match.Success || match.Index != 0) break;
             usings.Add(match.Value.Trim());
-            remainder = remainder[match.Length..];
+            // Splice out only the using, preserving leading trivia (comments/whitespace) so the
+            // original structure of the remainder is not lost.
+            remainder = remainder[..triviaLen] + afterTrivia[match.Length..];
         }
         return (usings, remainder);
+    }
+
+    // Advance over whitespace, line comments (//), and block comments (/* */) so SplitLeadingUsings
+    // can find `using` directives that are preceded by documentation or header comments.
+    private static int ConsumeLeadingTrivia(string s)
+    {
+        var i = 0;
+        while (i < s.Length)
+        {
+            if (char.IsWhiteSpace(s[i])) { i++; continue; }
+            if (i + 1 < s.Length && s[i] == '/' && s[i + 1] == '/')
+            {
+                i += 2;
+                while (i < s.Length && s[i] != '\n') i++;
+                continue;
+            }
+            if (i + 1 < s.Length && s[i] == '/' && s[i + 1] == '*')
+            {
+                i += 2;
+                while (i + 1 < s.Length && !(s[i] == '*' && s[i + 1] == '/')) i++;
+                if (i + 1 < s.Length) i += 2; // consume closing */
+                continue;
+            }
+            break;
+        }
+        return i;
     }
 
     internal static bool TryRoslynInsert(string content, string codeToAppend, string? insertAfterAnchor, out string result, out string? failureReason)
@@ -227,18 +258,20 @@ public class CodeInserter : ICodeInserter
     internal static string HoistUsingsIntoContent(string content, List<string> extractedUsings)
     {
         // Insert missing usings after the last existing `using ...;` line, or at the very top.
-        // Dedup key includes the `static` flag so `using X.Y;` and `using static X.Y;` are
-        // treated as distinct directives (they bind different things).
+        // Dedup key distinguishes `static` flag and alias so `using X;`, `using static X;`,
+        // and `using M = X;` are all kept as separate directives. Group 2 already captures
+        // the alias body (`M = X`) because the char class includes `=`, so for the regex
+        // path we feed the whole captured body as the "name" portion and leave alias empty.
         var existing = new HashSet<string>();
         foreach (Match m in Regex.Matches(content, @"^\s*using\s+(static\s+)?([\w.@=\s<>,]+);", RegexOptions.Multiline))
-            existing.Add(UsingKey(m.Groups[1].Success, m.Groups[2].Value));
+            existing.Add(UsingKey(m.Groups[1].Success, "", m.Groups[2].Value));
 
         var toAdd = new List<string>();
         foreach (var raw in extractedUsings)
         {
-            var tokenMatch = Regex.Match(raw, @"^using\s+(static\s+)?([\w.@=\s<>,]+);");
+            var tokenMatch = Regex.Match(raw, @"^\s*(?:global\s+)?using\s+(static\s+)?([\w.@=\s<>,]+);");
             if (!tokenMatch.Success) continue;
-            var key = UsingKey(tokenMatch.Groups[1].Success, tokenMatch.Groups[2].Value);
+            var key = UsingKey(tokenMatch.Groups[1].Success, "", tokenMatch.Groups[2].Value);
             if (existing.Add(key))
                 toAdd.Add(raw);
         }
@@ -260,7 +293,7 @@ public class CodeInserter : ICodeInserter
     {
         var existing = root.Usings
             .Where(u => u.Name != null)
-            .Select(u => UsingKey(u.StaticKeyword.IsKind(SyntaxKind.StaticKeyword), u.Name!.ToString()))
+            .Select(RoslynUsingKey)
             .ToHashSet();
 
         var toAdd = new List<UsingDirectiveSyntax>();
@@ -268,16 +301,25 @@ public class CodeInserter : ICodeInserter
         {
             var parsed = SyntaxFactory.ParseCompilationUnit(raw).Usings.FirstOrDefault();
             if (parsed == null || parsed.Name == null) continue;
-            var key = UsingKey(parsed.StaticKeyword.IsKind(SyntaxKind.StaticKeyword), parsed.Name.ToString());
-            if (existing.Add(key))
+            if (existing.Add(RoslynUsingKey(parsed)))
                 toAdd.Add(parsed);
         }
 
         return toAdd.Count == 0 ? root : root.AddUsings([.. toAdd]);
     }
 
-    private static string UsingKey(bool isStatic, string name) =>
-        (isStatic ? "static " : "") + name.Trim();
+    // Keys must distinguish (a) `using X;` from `using static X;` and
+    // (b) `using X;` from `using M = X;`. u.Name is only the RHS, so aliased
+    // and non-aliased imports collide unless we mix the alias identifier in.
+    private static string RoslynUsingKey(UsingDirectiveSyntax u)
+    {
+        var isStatic = u.StaticKeyword.IsKind(SyntaxKind.StaticKeyword);
+        var alias = u.Alias?.Name.Identifier.Text ?? "";
+        return UsingKey(isStatic, alias, u.Name?.ToString() ?? "");
+    }
+
+    private static string UsingKey(bool isStatic, string alias, string name) =>
+        (isStatic ? "static " : "") + alias + "|" + name.Trim();
 
     internal static string NormalizeWhitespace(string input) =>
         Regex.Replace(input, @"\s+", " ").Trim();
