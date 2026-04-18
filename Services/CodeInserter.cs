@@ -175,7 +175,8 @@ public class CodeInserter : ICodeInserter
             {
                 i += 2;
                 while (i + 1 < s.Length && !(s[i] == '*' && s[i + 1] == '/')) i++;
-                if (i + 1 < s.Length) i += 2; // consume closing */
+                if (i + 1 < s.Length) i += 2;       // consume closing */
+                else i = s.Length;                  // unclosed comment: treat remainder as trivia
                 continue;
             }
             break;
@@ -258,20 +259,18 @@ public class CodeInserter : ICodeInserter
     internal static string HoistUsingsIntoContent(string content, List<string> extractedUsings)
     {
         // Insert missing usings after the last existing `using ...;` line, or at the very top.
-        // Dedup key distinguishes `static` flag and alias so `using X;`, `using static X;`,
-        // and `using M = X;` are all kept as separate directives. Group 2 already captures
-        // the alias body (`M = X`) because the char class includes `=`, so for the regex
-        // path we feed the whole captured body as the "name" portion and leave alias empty.
+        // Split alias from name so keys have the same shape as the Roslyn path and are
+        // insensitive to internal whitespace (`M=X` and `M = X` collapse correctly).
         var existing = new HashSet<string>();
         foreach (Match m in Regex.Matches(content, @"^\s*using\s+(static\s+)?([\w.@=\s<>,]+);", RegexOptions.Multiline))
-            existing.Add(UsingKey(m.Groups[1].Success, "", m.Groups[2].Value));
+            existing.Add(KeyFromRegexBody(m.Groups[1].Success, m.Groups[2].Value));
 
         var toAdd = new List<string>();
         foreach (var raw in extractedUsings)
         {
             var tokenMatch = Regex.Match(raw, @"^\s*(?:global\s+)?using\s+(static\s+)?([\w.@=\s<>,]+);");
             if (!tokenMatch.Success) continue;
-            var key = UsingKey(tokenMatch.Groups[1].Success, "", tokenMatch.Groups[2].Value);
+            var key = KeyFromRegexBody(tokenMatch.Groups[1].Success, tokenMatch.Groups[2].Value);
             if (existing.Add(key))
                 toAdd.Add(raw);
         }
@@ -319,7 +318,23 @@ public class CodeInserter : ICodeInserter
     }
 
     private static string UsingKey(bool isStatic, string alias, string name) =>
-        (isStatic ? "static " : "") + alias + "|" + name.Trim();
+        (isStatic ? "static " : "") + alias.Trim() + "|" + name.Trim();
+
+    // Split a regex-captured using body (possibly `alias = name`) into the alias/name pair
+    // so the regex path produces keys shaped like the Roslyn path. This also collapses
+    // whitespace variance around `=` because we trim each side.
+    private static string KeyFromRegexBody(bool isStatic, string body)
+    {
+        var trimmed = body.Trim();
+        var eqIdx = trimmed.IndexOf('=');
+        if (eqIdx > 0)
+        {
+            var alias = trimmed[..eqIdx];
+            var name = trimmed[(eqIdx + 1)..];
+            return UsingKey(isStatic, alias, name);
+        }
+        return UsingKey(isStatic, "", trimmed);
+    }
 
     internal static string NormalizeWhitespace(string input) =>
         Regex.Replace(input, @"\s+", " ").Trim();

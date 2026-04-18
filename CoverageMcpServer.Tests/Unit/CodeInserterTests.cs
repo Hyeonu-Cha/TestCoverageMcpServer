@@ -387,6 +387,22 @@ public void X() { }";
     }
 
     [Fact]
+    public void HoistUsingsIntoContent_DedupsAliasedImportIgnoringWhitespace()
+    {
+        // `using M=System.Math;` and `using M = System.Math;` are the same directive;
+        // the regex-path key must split alias from name so internal whitespace doesn't
+        // produce two distinct keys and allow a duplicate through.
+        var content = "using M=System.Math;\n\nnamespace N { class C {} }\n";
+        var toAdd = new List<string> { "using M = System.Math;" };
+
+        var result = CodeInserter.HoistUsingsIntoContent(content, toAdd);
+
+        var count = System.Text.RegularExpressions.Regex
+            .Matches(result, @"using M\s*=\s*System\.Math;").Count;
+        count.Should().Be(1);
+    }
+
+    [Fact]
     public void SplitLeadingUsings_HandlesBlockCommentAndMultipleUsings()
     {
         var code = "/* file-level doc */\nusing System;\n// comment\nusing System.Linq;\npublic void X() { }";

@@ -145,9 +145,6 @@ public class CoverageTools
         if (resolvedPath == null)
             return JsonHelper.Error("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
 
-        try { _pathGuard.Validate(resolvedPath, "resolvedPath"); }
-        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
-
         try
         {
             var result = _coberturaService.GetUncoveredBranches(resolvedPath, methodName);
@@ -211,9 +208,6 @@ public class CoverageTools
         if (resolvedPath == null)
             return JsonHelper.Error("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
 
-        try { _pathGuard.Validate(resolvedPath, "resolvedPath"); }
-        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
-
         if (workingDir == null)
         {
             workingDir = ResolveProjectRoot(resolvedPath);
@@ -264,9 +258,6 @@ public class CoverageTools
         if (resolvedPath == null)
             return JsonHelper.Error("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
 
-        try { _pathGuard.Validate(resolvedPath, "resolvedPath"); }
-        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
-
         try
         {
             var result = _coberturaService.GetFileCoverage(resolvedPath, sourceFileName, targetRate);
@@ -298,31 +289,23 @@ public class CoverageTools
         if (path.Contains(',') || path.Contains(';'))
         {
             scope = "list";
-            var rawPaths = path.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim()).ToList();
-            var authorizedPaths = new List<string>();
-            var skippedPaths = new List<string>();
-
-            foreach (var p in rawPaths)
+            var paths = path.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries);
+            try
             {
-                if (string.IsNullOrWhiteSpace(p)) continue;
-                if (_pathGuard.IsWithinAllowedRoot(p))
-                    authorizedPaths.Add(p);
-                else
-                    skippedPaths.Add(p);
+                foreach (var p in paths) _pathGuard.Validate(p.Trim(), nameof(path));
             }
+            catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
 
-            filePaths = authorizedPaths
+            filePaths = paths
+                .Select(p => p.Trim())
                 .Where(p => File.Exists(p) && p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
                 .Select(Path.GetFullPath)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(f => f)
                 .ToList();
 
-            if (filePaths.Count == 0 && authorizedPaths.Count > 0)
-                return JsonHelper.Error("fileNotFound", "None of the authorized files in the list were found or are .cs files.");
-            
-            if (filePaths.Count == 0 && skippedPaths.Count > 0)
-                return JsonHelper.Error("pathNotAllowed", $"All provided paths were rejected by the Path Guard: {string.Join(", ", skippedPaths)}");
+            if (filePaths.Count == 0)
+                return JsonHelper.Error("fileNotFound", "None of the files in the provided list were found or are .cs files.");
         }
         else
         {
@@ -455,18 +438,7 @@ public class CoverageTools
                 || name.StartsWith("coveragereport", StringComparison.OrdinalIgnoreCase)
                 || Guid.TryParse(name, out _))
             {
-                var parent = Path.GetDirectoryName(dir);
-                // Only skip GUID dirs if they are children of something that looks like a project root
-                if (Guid.TryParse(name, out _) && parent != null)
-                {
-                    var parentName = Path.GetFileName(parent);
-                    if (!parentName.StartsWith("TestResults", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Not a TestResults/GUID structure, might be a real project dir
-                        return dir;
-                    }
-                }
-                dir = parent;
+                dir = Path.GetDirectoryName(dir);
                 continue;
             }
             return dir;

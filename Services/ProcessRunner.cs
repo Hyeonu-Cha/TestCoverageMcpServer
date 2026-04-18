@@ -21,6 +21,9 @@ public class ProcessRunner : IProcessRunner
     private readonly ILogger<ProcessRunner> _logger;
     private const int ReportGeneratorTimeoutMs = 60_000;
     private static readonly int DotnetTestTimeoutMs = ReadDotnetTestTimeoutMs();
+    // Bounded wait for stdout/stderr to drain after the child process has been killed.
+    // Long enough for the OS to flush the pipe buffer, short enough not to extend a timeout.
+    private static readonly TimeSpan PostKillDrainWait = TimeSpan.FromSeconds(1);
 
     public ProcessRunner(ILogger<ProcessRunner> logger)
     {
@@ -122,11 +125,11 @@ public class ProcessRunner : IProcessRunner
         return int.TryParse(raw, out var v) && v > 0 ? v : defaultMs;
     }
 
-    // Wait up to 1s for a read task to complete after the process has been killed.
-    // If it doesn't finish, observe its eventual exception so it never surfaces as
-    // an UnobservedTaskException and return an empty string.
+    // Wait for a read task to complete after the process has been killed, up to the
+    // bounded PostKillDrainWait. If it doesn't finish, observe its eventual exception
+    // so it never surfaces as an UnobservedTaskException and return an empty string.
     internal static async Task<string> DrainAsync(Task<string> task) =>
-        await DrainAsync(task, TimeSpan.FromSeconds(1));
+        await DrainAsync(task, PostKillDrainWait);
 
     internal static async Task<string> DrainAsync(Task<string> task, TimeSpan wait)
     {
