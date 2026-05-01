@@ -22,6 +22,13 @@ public class CoverageTools
         ICodeInserter codeInserter,
         IPathGuard pathGuard)
     {
+        ArgumentNullException.ThrowIfNull(processRunner);
+        ArgumentNullException.ThrowIfNull(sessionManager);
+        ArgumentNullException.ThrowIfNull(fileService);
+        ArgumentNullException.ThrowIfNull(coberturaService);
+        ArgumentNullException.ThrowIfNull(codeInserter);
+        ArgumentNullException.ThrowIfNull(pathGuard);
+
         _processRunner = processRunner;
         _sessionManager = sessionManager;
         _fileService = fileService;
@@ -33,7 +40,7 @@ public class CoverageTools
     // --- 1. RunTestsWithCoverage ---
 
     [McpServerTool]
-    [Description("Run dotnet test with XPlat Code Coverage and generate a JSON summary. Returns paths to Summary.json and coverage.cobertura.xml. Use broad filter (containing * or ,) for multi-file coverage. Pass includeClass to scope coverage collection to a single class. Set forceRestore=true after scaffolding a new test project or adding NuGet packages. Pass sessionId to isolate output directories when multiple agents run concurrently.")]
+    [Description("Run `dotnet test` with XPlat Code Coverage and generate a JSON summary. Returns paths to Summary.json and Cobertura XML.")]
     public async Task<string> RunTestsWithCoverage(
         string testProjectPath,
         string filter,
@@ -108,7 +115,7 @@ public class CoverageTools
     // --- 2. GetCoverageSummary ---
 
     [McpServerTool]
-    [Description("Parse Summary.json into structured class/method coverage data sorted by branch coverage (lowest first). Returns JSON array with lineCoverage and branchCoverage per class and method.")]
+    [Description("Parse Summary.json into class/method coverage data, sorted by branch coverage ascending.")]
     public string GetCoverageSummary(string summaryJsonPath)
     {
         try { _pathGuard.Validate(summaryJsonPath, nameof(summaryJsonPath)); }
@@ -135,7 +142,7 @@ public class CoverageTools
     // --- 3. GetUncoveredBranches ---
 
     [McpServerTool]
-    [Description("Find uncovered branch conditions for methods matching the given name in Cobertura XML. Returns all matching methods with their uncovered branches. Supports partial method name matching. Pass sessionId to resolve the correct coverage state when multiple agents run concurrently.")]
+    [Description("List uncovered branches for methods matching `methodName` in Cobertura XML (partial match supported).")]
     public string GetUncoveredBranches(string coberturaXmlPath, string methodName, string? sessionId = null)
     {
         try { _pathGuard.Validate(coberturaXmlPath, nameof(coberturaXmlPath)); }
@@ -163,7 +170,7 @@ public class CoverageTools
     // --- 4. AppendTestCode ---
 
     [McpServerTool]
-    [Description("Insert or append C# test code into a test file. Use insertAfterAnchor to place code after a specific method or string, or omit to append inside the last class (before its closing brace, preserving namespace scope). Uses Roslyn AST for safe insertion with string-based fallback. File-level locking prevents concurrent write loss.")]
+    [Description("Insert C# code into a test file via Roslyn AST (string fallback). Pass `insertAfterAnchor` to target a position; omit to append inside the last class.")]
     public async Task<string> AppendTestCode(string testFilePath, string codeToAppend, string? insertAfterAnchor = null)
     {
         try { _pathGuard.Validate(testFilePath, nameof(testFilePath)); }
@@ -180,7 +187,7 @@ public class CoverageTools
                 InsertionMethod.RoslynAst => "Roslyn AST",
                 InsertionMethod.StringFallback => "string fallback",
                 InsertionMethod.StringFallbackNormalized => "string fallback, whitespace-normalized",
-                InsertionMethod.Appended => "string fallback, before-last-brace",
+                InsertionMethod.Appended => "string fallback, inside last class",
                 _ => "unknown"
             };
             return $"Successfully inserted via {methodLabel} in {testFilePath}.\nNew file length: {result.Content.Length} chars";
@@ -194,7 +201,7 @@ public class CoverageTools
     // --- 5. GetCoverageDiff ---
 
     [McpServerTool]
-    [Description("Compare current coverage against the previous baseline. Shows method-level changes including new and removed methods. Saves current as new baseline after comparison. Use sessionId to isolate concurrent runs.")]
+    [Description("Diff current coverage against the saved baseline (method-level changes, including added/removed). Updates the baseline afterwards.")]
     public string GetCoverageDiff(string coberturaXmlPath, string? workingDir = null, string? sessionId = null)
     {
         try
@@ -245,7 +252,7 @@ public class CoverageTools
     // --- 6. GetFileCoverage ---
 
     [McpServerTool]
-    [Description("Get coverage for a single source file from Cobertura XML. Returns per-class and per-method rates with allMeetTarget (true when all classes meet targetRate for both line and branch). Instant — just XML parsing. Pass sessionId to resolve the correct coverage state when multiple agents run concurrently.")]
+    [Description("Per-file class/method coverage from Cobertura XML. `allMeetTarget` is true when every class meets `targetRate` for line and branch.")]
     public string GetFileCoverage(string coberturaXmlPath, string sourceFileName, string? sessionId = null, double targetRate = 0.8)
     {
         try { _pathGuard.Validate(coberturaXmlPath, nameof(coberturaXmlPath)); }
@@ -276,7 +283,7 @@ public class CoverageTools
     // --- 7. GetSourceFiles ---
 
     [McpServerTool]
-    [Description("Discover .cs source files from a file path, folder, .csproj project, or comma/semicolon-separated list of .cs file paths. Returns file metadata (lines, methodCount) and smart batches grouped by lineBudget. Small files are grouped together, large files get their own batch. Use a list of paths to target specific files (e.g. from git diff --name-only).")]
+    [Description("Discover .cs files from a file/folder/.csproj/comma-separated list and group into batches sized by `lineBudget`.")]
     public string GetSourceFiles(string path, int lineBudget = 300)
     {
         if (lineBudget < 1)
@@ -404,7 +411,7 @@ public class CoverageTools
     // --- 8. CleanupSession ---
 
     [McpServerTool]
-    [Description("Remove stale session artifacts. Call with sessionId to clean that session, or omit to remove all artifacts older than maxAgeMinutes (default 120). Cleans state files in .mcp-coverage/ and session-scoped TestResults/coveragereport directories.")]
+    [Description("Remove session state files and TestResults/coveragereport directories. Pass `sessionId` to scope, or omit to clean artifacts older than `maxAgeMinutes`.")]
     public string CleanupSession(string workingDir, string? sessionId = null, int maxAgeMinutes = 120)
     {
         try { _pathGuard.Validate(workingDir, nameof(workingDir)); }

@@ -43,9 +43,10 @@ public class SessionManager : ISessionManager
         // Walk up from the supplied path to find .mcp-coverage/.
         // The caller may pass an old path inside a deleted TestResults-xxx/ directory,
         // but .mcp-coverage/ lives at the project root — so we search upward.
-        var dir = Path.GetDirectoryName(coberturaXmlPath) is { Length: > 0 } d
+        var startDir = Path.GetDirectoryName(coberturaXmlPath) is { Length: > 0 } d
             ? d
             : Directory.GetCurrentDirectory();
+        var dir = startDir;
 
         const int maxDepth = 20;
         for (var depth = 0; dir != null && depth < maxDepth; depth++)
@@ -55,7 +56,13 @@ public class SessionManager : ISessionManager
             {
                 var resolved = TryResolveFromStateDir(stateDir, sessionId);
                 if (resolved != null)
+                {
+                    if (depth > 0)
+                        _logger.LogInformation(
+                            "Resolved cobertura path via walk-up: found state in {StateDir} (started from {StartDir})",
+                            stateDir, startDir);
                     return resolved;
+                }
             }
             dir = Path.GetDirectoryName(dir);
         }

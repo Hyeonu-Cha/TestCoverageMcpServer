@@ -1,5 +1,8 @@
 # CoverageMcpServer
 
+[![build](https://github.com/Hyeonu-Cha/TestCoverageMcpServer/actions/workflows/dotnet.yml/badge.svg)](https://github.com/Hyeonu-Cha/TestCoverageMcpServer/actions/workflows/dotnet.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 An MCP (Model Context Protocol) server that exposes .NET code coverage tooling as callable tools for AI assistants such as Claude Code or Gemini CLI.
 
 ## Purpose
@@ -67,6 +70,11 @@ Without `sessionId`, tools use shared defaults — safe for single-agent use.
   dotnet tool install --global dotnet-reportgenerator-globaltool
   ```
 - An MCP-compatible client (Claude Code, Gemini CLI, etc.)
+- **`COVERAGE_MCP_ALLOWED_ROOT`** — recommended. Set to your repository root to restrict every tool's filesystem access to that subtree. Any path passed by the client outside this root is rejected with `pathNotAllowed`. When unset, the server logs a warning once and accepts any path (backward-compatible, but not recommended for shared environments).
+
+  ```bash
+  export COVERAGE_MCP_ALLOWED_ROOT=/path/to/your/repo
+  ```
 
 ## Build & Run
 
