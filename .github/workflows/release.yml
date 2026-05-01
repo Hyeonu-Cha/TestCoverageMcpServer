@@ -1,0 +1,55 @@
+name: release
+
+# Triggered when you push a tag like `v0.1.0`. Builds, tests, packs, and
+# publishes the NuGet package, then attaches the .nupkg to a GitHub Release.
+#
+# Prerequisites (one-time setup):
+#   1. Create a NuGet API key at https://www.nuget.org/account/apikeys
+#   2. Add it as repo secret `NUGET_API_KEY` (Settings → Secrets → Actions)
+#
+# After that, a release is just:
+#   git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release --verbosity normal
+
+      - name: Pack
+        run: dotnet pack CoverageMcpServer.csproj --no-build --configuration Release -p:Version=${{ steps.version.outputs.version }} -o ./nupkg
+
+      - name: Publish to NuGet
+        run: dotnet nuget push "./nupkg/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./nupkg/*.nupkg
+          generate_release_notes: true

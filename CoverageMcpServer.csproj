@@ -1,25 +1,52 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-  <TargetFramework>net9.0</TargetFramework>   <!-- or net10.0 if you have the preview SDK -->
-  <ImplicitUsings>enable</ImplicitUsings>
-  <Nullable>enable</Nullable>
-  <OutputType>Exe</OutputType>
-</PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Exe</OutputType>
 
-<ItemGroup>
-  <InternalsVisibleTo Include="CoverageMcpServer.Tests" />
-</ItemGroup>
+    <!-- NuGet package metadata: distributed as a `dotnet tool` so users can
+         `dotnet tool install --global HyeonuCha.CoverageMcpServer` and then
+         point their MCP client at `coverage-mcp-server`. -->
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>coverage-mcp-server</ToolCommandName>
+    <PackageId>HyeonuCha.CoverageMcpServer</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Hyeonu Cha</Authors>
+    <Company>Hyeonu Cha</Company>
+    <Title>Coverage MCP Server</Title>
+    <Description>An MCP (Model Context Protocol) server that exposes .NET code coverage tooling as callable tools for AI assistants such as Claude Code or Gemini CLI. Run dotnet test, parse Cobertura XML, identify uncovered branches, diff coverage between runs, and append test code — all via MCP tools.</Description>
+    <PackageTags>mcp;model-context-protocol;coverage;dotnet;test-coverage;ai-tools;claude;gemini</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Hyeonu-Cha/TestCoverageMcpServer</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Hyeonu-Cha/TestCoverageMcpServer</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
 
-<ItemGroup>
-  <Compile Remove="CoverageMcpServer.Tests\**" />
-</ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CoverageMcpServer.Tests" />
+  </ItemGroup>
 
-<ItemGroup>
-  <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
-  <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
-  <PackageReference Include="ModelContextProtocol" Version="1.1.0" />
-</ItemGroup>
+  <ItemGroup>
+    <Compile Remove="CoverageMcpServer.Tests\**" />
+  </ItemGroup>
 
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="LICENSE" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="ModelContextProtocol" Version="1.1.0" />
+  </ItemGroup>
 
 </Project>
