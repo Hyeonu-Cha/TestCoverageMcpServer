@@ -1,0 +1,35 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.hyeonu-cha/coverage-mcp-server",
+  "description": "An MCP (Model Context Protocol) server that exposes .NET code coverage tooling as callable tools for AI assistants. Run dotnet test, parse Cobertura XML, identify uncovered branches, diff coverage between runs, and append test code — all via MCP tools.",
+  "repository": {
+    "url": "https://github.com/Hyeonu-Cha/TestCoverageMcpServer",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "websiteUrl": "https://github.com/Hyeonu-Cha/TestCoverageMcpServer",
+  "packages": [
+    {
+      "registryType": "nuget",
+      "registryBaseUrl": "https://api.nuget.org/v3/index.json",
+      "identifier": "HyeonuCha.CoverageMcpServer",
+      "version": "0.1.0",
+      "runtimeHint": "dnx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "COVERAGE_MCP_ALLOWED_ROOT",
+          "description": "Restrict every tool's filesystem access to this subtree. Recommended for shared environments. When unset, the server logs a warning and accepts any path.",
+          "isRequired": false
+        },
+        {
+          "name": "COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS",
+          "description": "Override the dotnet test timeout in milliseconds. Default: 600000 (10 minutes).",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

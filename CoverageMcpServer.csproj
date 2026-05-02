@@ -1,25 +1,49 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-  <TargetFramework>net9.0</TargetFramework>   <!-- or net10.0 if you have the preview SDK -->
-  <ImplicitUsings>enable</ImplicitUsings>
-  <Nullable>enable</Nullable>
-  <OutputType>Exe</OutputType>
-</PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
 
-<ItemGroup>
-  <InternalsVisibleTo Include="CoverageMcpServer.Tests" />
-</ItemGroup>
+  <!-- NuGet package metadata, gated on `IsPacking=true` so it only activates
+       during `dotnet pack` (release workflow). Build, test, and the test
+       project's ProjectReference don't see PackAsTool=true, which avoids
+       restore-time validation conflicts between tool packaging and
+       cross-project references. -->
+  <PropertyGroup Condition="'$(IsPacking)' == 'true'">
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>coverage-mcp-server</ToolCommandName>
+    <PackageId>HyeonuCha.CoverageMcpServer</PackageId>
+    <Authors>Hyeonu Cha</Authors>
+    <Title>Coverage MCP Server</Title>
+    <Description>An MCP (Model Context Protocol) server that exposes .NET code coverage tooling as callable tools for AI assistants such as Claude Code or Gemini CLI. Run dotnet test, parse Cobertura XML, identify uncovered branches, diff coverage between runs, and append test code — all via MCP tools.</Description>
+    <PackageTags>mcp;model-context-protocol;coverage;dotnet;test-coverage;ai-tools;claude;gemini</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Hyeonu-Cha/TestCoverageMcpServer</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Hyeonu-Cha/TestCoverageMcpServer</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
 
-<ItemGroup>
-  <Compile Remove="CoverageMcpServer.Tests\**" />
-</ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CoverageMcpServer.Tests" />
+  </ItemGroup>
 
-<ItemGroup>
-  <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
-  <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
-  <PackageReference Include="ModelContextProtocol" Version="1.1.0" />
-</ItemGroup>
+  <ItemGroup>
+    <Compile Remove="CoverageMcpServer.Tests\**" />
+  </ItemGroup>
 
+  <ItemGroup Condition="'$(IsPacking)' == 'true'">
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="ModelContextProtocol" Version="1.1.0" />
+  </ItemGroup>
 
 </Project>

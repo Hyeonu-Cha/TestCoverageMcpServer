@@ -1,6 +1,7 @@
 # CoverageMcpServer
 
 [![build](https://github.com/Hyeonu-Cha/TestCoverageMcpServer/actions/workflows/dotnet.yml/badge.svg)](https://github.com/Hyeonu-Cha/TestCoverageMcpServer/actions/workflows/dotnet.yml)
+[![NuGet](https://img.shields.io/nuget/v/HyeonuCha.CoverageMcpServer.svg)](https://www.nuget.org/packages/HyeonuCha.CoverageMcpServer/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An MCP (Model Context Protocol) server that exposes .NET code coverage tooling as callable tools for AI assistants such as Claude Code or Gemini CLI.
@@ -76,7 +77,17 @@ Without `sessionId`, tools use shared defaults — safe for single-agent use.
   export COVERAGE_MCP_ALLOWED_ROOT=/path/to/your/repo
   ```
 
-## Build & Run
+## Install
+
+The recommended way to install is as a global .NET tool from NuGet:
+
+```bash
+dotnet tool install --global HyeonuCha.CoverageMcpServer
+```
+
+After install, the `coverage-mcp-server` command is on your PATH.
+
+## Build & Run (from source)
 
 ```bash
 cd <path-to-CoverageMcpServer>
@@ -95,7 +106,23 @@ The server will start and wait for MCP messages over stdin/stdout.
 
 ## MCP Client Configuration
 
-To register this server in Gemini/Claude Code, add it to your MCP settings:
+If you installed via `dotnet tool`, point your MCP client at the global command:
+
+```json
+{
+  "mcpServers": {
+    "coverage": {
+      "command": "coverage-mcp-server",
+      "transport": "stdio",
+      "env": {
+        "COVERAGE_MCP_ALLOWED_ROOT": "/path/to/your/repo"
+      }
+    }
+  }
+}
+```
+
+To run from source instead, use `dotnet run`:
 
 ```json
 {
@@ -208,3 +235,25 @@ The skills support NUnit, xUnit, and MSTest with framework-agnostic reference do
 | `Microsoft.Extensions.Hosting` | 9.0.0 | DI and hosting |
 | `ModelContextProtocol` | 1.1.0 | MCP server framework |
 | `Microsoft.CodeAnalysis.CSharp` | 5.3.0 | Roslyn AST for safe code insertion and accurate method counting (~15MB) |
+
+## Releasing (maintainer notes)
+
+Releases are automated via `.github/workflows/release.yml`, which fires on any `v*.*.*` tag.
+
+One-time setup:
+1. Generate a NuGet API key at <https://www.nuget.org/account/apikeys>.
+2. Add it as repo secret `NUGET_API_KEY` (Settings → Secrets and variables → Actions).
+
+To cut a release:
+
+```bash
+# Update <Version> in CoverageMcpServer.csproj and "version" in server.json
+git commit -am "Release v0.1.0"
+git tag v0.1.0
+git push origin main --tags
+```
+
+The workflow builds, tests, packs, pushes the package to NuGet, and creates a GitHub Release with auto-generated notes.
+
+After NuGet publishes (a few minutes), submit `server.json` to the [official MCP registry](https://registry.modelcontextprotocol.io) so MCP clients and aggregators can discover the server.
+
