@@ -240,6 +240,12 @@ The skills support NUnit, xUnit, and MSTest with framework-agnostic reference do
 
 CoverageMcpServer runs as a local stdio process and validates every tool argument against `COVERAGE_MCP_ALLOWED_ROOT` to confine filesystem access. See [SECURITY.md](SECURITY.md) for the threat model, hardening recommendations, and how to report a vulnerability.
 
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development
+setup, pull request guidelines, and code conventions. Notable changes are tracked
+in [CHANGELOG.md](CHANGELOG.md).
+
 ## Releasing (maintainer notes)
 
 Releases are automated via `.github/workflows/release.yml`, which fires on any `v*.*.*` tag.
