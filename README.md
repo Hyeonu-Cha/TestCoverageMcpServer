@@ -236,6 +236,10 @@ The skills support NUnit, xUnit, and MSTest with framework-agnostic reference do
 | `ModelContextProtocol` | 1.1.0 | MCP server framework |
 | `Microsoft.CodeAnalysis.CSharp` | 5.3.0 | Roslyn AST for safe code insertion and accurate method counting (~15MB) |
 
+## Security
+
+CoverageMcpServer runs as a local stdio process and validates every tool argument against `COVERAGE_MCP_ALLOWED_ROOT` to confine filesystem access. See [SECURITY.md](SECURITY.md) for the threat model, hardening recommendations, and how to report a vulnerability.
+
 ## Releasing (maintainer notes)
 
 Releases are automated via `.github/workflows/release.yml`, which fires on any `v*.*.*` tag.
@@ -256,4 +260,3 @@ git push origin main --tags
 The workflow builds, tests, packs, pushes the package to NuGet, and creates a GitHub Release with auto-generated notes.
 
 After NuGet publishes (a few minutes), submit `server.json` to the [official MCP registry](https://registry.modelcontextprotocol.io) so MCP clients and aggregators can discover the server.
-
