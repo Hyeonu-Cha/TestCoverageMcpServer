@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hardening recommendations.
 - `CONTRIBUTING.md` with development setup and pull request guidelines.
 - Issue and pull request templates under `.github/`.
+- Dependabot configuration for NuGet and GitHub Actions ecosystems.
+- CodeQL workflow running `security-and-quality` queries on every push, PR, and
+  weekly cron.
+- Least-privilege `permissions: contents: read` block on the `build` workflow.
 
 ### Changed
 - `AppendTestCode` now catches generic exceptions and returns a structured
