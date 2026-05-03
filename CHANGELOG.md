@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Least-privilege `permissions: contents: read` block on the `build` workflow.
 
 ### Changed
+- `build` workflow now runs on a `ubuntu-latest`, `windows-latest`, `macos-latest`
+  matrix to verify cross-platform support claimed in the README.
 - `AppendTestCode` now catches generic exceptions and returns a structured
   `insertFailed` error, matching the error-handling shape of peer tools.
 - README documents the `CleanupSession` tool and the list-of-paths input to
