@@ -5,6 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <OutputType>Exe</OutputType>
+    <!-- Default `dotnet pack` is intentionally a no-op. Packaging requires
+         `-p:IsPacking=true` (set by .github/workflows/release.yml). This
+         prevents accidental publishes of a malformed library package, since
+         the tool/MCP metadata below only activates when IsPacking=true. -->
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <!-- NuGet package metadata, gated on `IsPacking=true` so it only activates
@@ -15,6 +20,10 @@
   <PropertyGroup Condition="'$(IsPacking)' == 'true'">
     <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
+    <!-- DotnetTool: install via `dotnet tool install -g`.
+         McpServer: discoverable as an MCP server in NuGet.org's MCP browsing
+         UI, alongside the embedded .mcp/server.json declaration. -->
+    <PackageType>DotnetTool;McpServer</PackageType>
     <ToolCommandName>dotnet-coverage-mcp</ToolCommandName>
     <PackageId>dotnet-coverage-mcp</PackageId>
     <Authors>Hyeonu Cha</Authors>
@@ -38,6 +47,9 @@
 
   <ItemGroup Condition="'$(IsPacking)' == 'true'">
     <None Include="README.md" Pack="true" PackagePath="\" />
+    <!-- NuGet's MCP discovery reads the embedded server.json. Path is
+         conventional: `.mcp/server.json` at package root. -->
+    <None Include="server.json" Pack="true" PackagePath=".mcp\server.json" />
   </ItemGroup>
 
   <ItemGroup>
