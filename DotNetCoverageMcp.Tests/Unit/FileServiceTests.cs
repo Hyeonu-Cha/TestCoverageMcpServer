@@ -110,28 +110,24 @@ public class FileServiceTests : IDisposable
     {
         var path1 = Path.Combine(_tempDir, "a.txt");
         var path2 = Path.Combine(_tempDir, "b.txt");
-        var overlapped = false;
-        var inFirst = 0;
+        var t1Entered = new TaskCompletionSource();
+        var t2Entered = new TaskCompletionSource();
 
         var t1 = _sut.WithFileLockAsync(path1, async () =>
         {
-            Interlocked.Exchange(ref inFirst, 1);
-            await Task.Delay(100);
-            Interlocked.Exchange(ref inFirst, 0);
+            t1Entered.SetResult();
+            await t2Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         });
 
-        await Task.Delay(20); // let t1 acquire its lock
+        await t1Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         var t2 = _sut.WithFileLockAsync(path2, async () =>
         {
-            if (Interlocked.CompareExchange(ref inFirst, 0, 0) == 1)
-                overlapped = true;
+            t2Entered.SetResult();
             await Task.CompletedTask;
         });
 
-        await Task.WhenAll(t1, t2);
-
-        overlapped.Should().BeTrue("different paths should allow parallel execution");
+        await Task.WhenAll(t1, t2).WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     // --- GetFileMetadata ---
