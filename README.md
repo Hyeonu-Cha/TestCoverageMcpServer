@@ -162,11 +162,11 @@ Or point directly at the compiled executable:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `testProjectPath` | string | Yes | Full path to the `.csproj` test project |
-| `filter` | string | Yes | Test filter string (matched against `FullyQualifiedName`). Broad filters containing `*` or `,` skip `/p:Include` scoping. |
+| `filter` | string | Yes | Test filter string (matched against `FullyQualifiedName`). Use `*` or `,` for broad runs across multiple test classes. |
 | `workingDir` | string | No | Working directory; defaults to the project directory |
 | `forceRestore` | bool | No | When `true`, skips the `--no-restore` flag. Use after scaffolding a new test project or adding NuGet packages. |
 | `sessionId` | string | No | Isolates output directories (`TestResults-{hash}/`, `coveragereport-{hash}/`) and state files for concurrent multi-agent use. |
-| `includeClass` | string | No | Restrict coverage collection to types matching this name. Forwarded to coverlet's `/p:Include` filter. Ignored when `filter` contains `*` or `,` (broad filter scopes coverage automatically). |
+| `includeClass` | string | No | Restrict coverage collection to types matching this name. Forwarded to coverlet as `/p:Include=[*]*{includeClass}`. Always honored when set, independent of `filter` — pass an explicit value to scope coverage; omit it to collect coverage for everything the run touches. |
 
 ### `GetCoverageSummary`
 | Parameter | Type | Required | Description |
