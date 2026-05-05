@@ -6,7 +6,7 @@
 [![NuGet](https://img.shields.io/nuget/v/dotnet-coverage-mcp.svg)](https://www.nuget.org/packages/dotnet-coverage-mcp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An MCP (Model Context Protocol) server that exposes .NET code coverage tooling as callable tools for AI assistants such as Claude Code or Gemini CLI.
+An MCP (Model Context Protocol) server that gives AI assistants — Claude Code, Gemini CLI, and others — direct access to .NET test-coverage tooling. Run dotnet test, parse Cobertura XML, identify uncovered branches, diff coverage between runs, and append test code — all over stdio.
 
 ## Purpose
 
