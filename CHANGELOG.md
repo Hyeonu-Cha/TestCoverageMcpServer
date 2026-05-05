@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-05
+
+### Added
+- `mcp-name: io.github.Hyeonu-Cha/dotnet-coverage-mcp` marker in README so
+  the MCP registry can verify NuGet package ownership.
+
+### Fixed
+- `server.json` now uses the case-correct `io.github.Hyeonu-Cha/...`
+  namespace so `mcp-publisher publish` is accepted by the registry.
+
 ## [0.1.0] - 2026-05-05
 
 First public release. Published to NuGet as `dotnet-coverage-mcp` 0.1.0
