@@ -13,7 +13,7 @@ This server lets an AI assistant run unit tests, collect coverage data, and anal
 - Discover source files and build smart batches by line budget
 - Run a filtered set of tests and collect coverage
 - Read compact, AI-optimised coverage summaries (method-level line/branch rates)
-- Check per-file coverage against an 80% target
+- Check per-file coverage against a configurable target rate (default 80%)
 - Identify uncovered branches as structured JSON
 - Diff coverage between runs to see only what changed
 - Append new test code to an existing test file with atomic writes
@@ -33,10 +33,11 @@ AI Client  <--stdio/MCP-->  dotnet-coverage-mcp  <--shell-->  dotnet test + repo
 | `GetSourceFiles` | Discover `.cs` files from a file, folder, or `.csproj` project. Returns file metadata (lines, method count) and smart batches grouped by `lineBudget`. |
 | `RunTestsWithCoverage` | Run `dotnet test` with XPlat Code Coverage, generate a JSON summary via `reportgenerator`. Returns paths to `Summary.json` and `coverage.cobertura.xml`. Supports `forceRestore` and `sessionId` for concurrent isolation. |
 | `GetCoverageSummary` | Parse `Summary.json` into structured class/method coverage data sorted by branch coverage ascending (lowest first). |
-| `GetFileCoverage` | Get coverage for a single source file from Cobertura XML. Returns `allMeetTarget` (true when all classes have line >= 80% and branch >= 80%). Supports `sessionId`. |
+| `GetFileCoverage` | Get coverage for a single source file from Cobertura XML. Returns `allMeetTarget` (true when all classes meet the configured `targetRate` for both line and branch coverage; default 0.8). Supports `sessionId`. |
 | `GetUncoveredBranches` | Find uncovered branch conditions for methods matching a given name. Returns all matching methods with partial name support. Supports `sessionId`. |
 | `GetCoverageDiff` | Compare current Cobertura XML against baseline. Shows method-level changes including new and removed methods. Supports `sessionId` for concurrent isolation. |
 | `AppendTestCode` | Insert or append C# test code into a test file. Supports anchor-based insertion with whitespace-tolerant fallback matching. Uses atomic writes to prevent file corruption. |
+| `CleanupSession` | Remove session state files and `TestResults/coveragereport` directories. Pass `sessionId` to scope, or omit to clean artifacts older than `maxAgeMinutes` (default 120). |
 
 ## Batch Workflow
 
@@ -48,7 +49,7 @@ For projects with many source files, the recommended workflow is:
 4. **Focus** — Pick the 3 lowest branch-coverage methods and call `GetUncoveredBranches` for each
 5. **Write tests** — Use `AppendTestCode` to add test methods
 6. **Re-run and diff** — Run tests once, call `GetCoverageDiff` to verify improvement
-7. **Repeat** — Continue until batch files reach 80% or 3 cycles with no improvement, then move to next batch
+7. **Repeat** — Continue until batch files meet the target rate (default 80%) or 3 cycles with no improvement, then move to next batch
 
 This minimises `dotnet test` invocations (the main bottleneck) while still tracking per-file progress.
 
@@ -177,6 +178,7 @@ Or point directly at the compiled executable:
 | `coberturaXmlPath` | string | Yes | Path to `coverage.cobertura.xml` (falls back to `.mcp-coverage/.coverage-state` if not found) |
 | `sourceFileName` | string | Yes | Source file name to look up (e.g., `ExampleService.cs`) |
 | `sessionId` | string | No | Resolves session-scoped state file for concurrent isolation. |
+| `targetRate` | double | No | Coverage threshold (0.0–1.0) used to compute `allMeetTarget`. Default `0.8`. |
 
 ### `GetUncoveredBranches`
 | Parameter | Type | Required | Description |
@@ -198,6 +200,13 @@ Or point directly at the compiled executable:
 | `testFilePath` | string | Yes | Full path to the target `.cs` test file |
 | `codeToAppend` | string | Yes | C# code to insert |
 | `insertAfterAnchor` | string | No | If provided, inserts code after the last occurrence of this string (with whitespace-tolerant fallback). If omitted, appends before the last `}`. |
+
+### `CleanupSession`
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `workingDir` | string | Yes | Project working directory containing `.mcp-coverage/` and TestResults artifacts |
+| `sessionId` | string | No | When set, removes only state files and directories scoped to this session. |
+| `maxAgeMinutes` | int | No | When `sessionId` is omitted, removes artifacts older than this many minutes. Default `120`. |
 
 ## State Files
 
@@ -232,8 +241,8 @@ The skills support NUnit, xUnit, and MSTest with framework-agnostic reference do
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `Microsoft.Extensions.Hosting` | 9.0.0 | DI and hosting |
-| `ModelContextProtocol` | 1.1.0 | MCP server framework |
+| `Microsoft.Extensions.Hosting` | 10.0.7 | DI and hosting |
+| `ModelContextProtocol` | 1.2.0 | MCP server framework |
 | `Microsoft.CodeAnalysis.CSharp` | 5.3.0 | Roslyn AST for safe code insertion and accurate method counting (~15MB) |
 
 ## Security
