@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-05
+
+First public release. Published to NuGet as `dotnet-coverage-mcp` 0.1.0
+(installable via `dotnet tool install -g dotnet-coverage-mcp` or
+`dnx dotnet-coverage-mcp`). Discoverable in the MCP registry under
+`io.github.hyeonu-cha/dotnet-coverage-mcp`.
+
 ### Added
 - `SECURITY.md` documenting threat model, private vulnerability reporting, and
   hardening recommendations.
@@ -16,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL workflow running `security-and-quality` queries on every push, PR, and
   weekly cron.
 - Least-privilege `permissions: contents: read` block on the `build` workflow.
+- NuGet packaging metadata gated on `-p:IsPacking=true` so the default
+  `dotnet pack` is a no-op (prevents accidental publishes of a malformed
+  library package). The `McpServer` package type and embedded
+  `.mcp/server.json` make the package discoverable in NuGet.org's MCP UI.
 
 ### Changed
 - **Project renamed** from `CoverageMcpServer` to `dotnet-coverage-mcp`. NuGet
@@ -26,8 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matrix to verify cross-platform support claimed in the README.
 - `AppendTestCode` now catches generic exceptions and returns a structured
   `insertFailed` error, matching the error-handling shape of peer tools.
-- README documents the `CleanupSession` tool and the list-of-paths input to
-  `GetSourceFiles`.
+- README documents the `CleanupSession` tool, the list-of-paths input to
+  `GetSourceFiles`, the `includeClass` parameter on `RunTestsWithCoverage`,
+  and the configurable `targetRate` on `GetFileCoverage`.
 
 ## Earlier history
 
